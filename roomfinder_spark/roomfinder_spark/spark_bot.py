@@ -103,6 +103,8 @@ def process_demoroom_members():
 
 # Bot functions to process the incoming messages posted by Cisco Spark
 def process_demoroom_message(post_data):
+    sys.stderr.write("Beginning of process_demoroom_message\n")
+    sys.stderr.write("post_data="+str(post_data)+"\n")
     message_type="text"
     message_id = post_data["data"]["id"]
     message = get_message(message_id)
@@ -111,6 +113,12 @@ def process_demoroom_message(post_data):
     # First make sure not processing a message from the bot
     if message["personEmail"] == bot_email:
         return ""
+
+    # If someone is mentioned, do not answer
+    if 'mentionedPeople' in message:
+        return ""
+
+    sys.stderr.write("message="+str(message)+"\n")
 
     text=message["text"].encode("utf-8")
     sys.stderr.write("Incoming Room Message\tmessage: "+text+"\t")
@@ -177,6 +185,7 @@ def process_demoroom_message(post_data):
         # Find the cco id
         cco_list = re.findall(r'[\w-]+', text)
         print "cco_list= "+str(cco_list)
+        cco_list.reverse()
         cco=cco_list.pop()
         while cco.find("dir") > -1:
             cco=cco_list.pop()
@@ -188,6 +197,7 @@ def process_demoroom_message(post_data):
         # Find the cco id
         keyword_list = re.findall(r'[\w-]+', text)
         print "keyword_list= "+str(keyword_list)
+        keyword_list.reverse()
         keyword=keyword_list.pop()
         while keyword.find("image") > -1:
             keyword=keyword_list.pop()
@@ -195,10 +205,21 @@ def process_demoroom_message(post_data):
         print "find_image: "+reply
         if type(reply) != str and type(reply) != unicode:
             message_type="image"
+    elif text.lower().find("plan") > -1 or text.lower().find("map") > -1 :
+        # Find the floor
+        keyword_list = re.findall(r'ILM-[1-7]', text) + re.findall(r'[1-7]', text)
+        print "keyword_list= "+str(keyword_list)
+        keyword_list.reverse()
+        floor=keyword_list.pop()
+        reply = display_map(floor)
+        print "display_map: "+floor
+        if type(reply) != str and type(reply) != unicode:
+            message_type="image"
     elif text.lower().find("book") > -1 or text.lower().find("reserve") > -1 :
         # Find the room name
         keyword_list = re.findall(r'[\w-]+', text)
         sys.stderr.write("keyword_list= "+str(keyword_list)+"\n")
+        keyword_list.reverse()
         keyword=keyword_list.pop()
         while keyword.find("book") > -1 or keyword.find("reserve") > -1:
             keyword=keyword_list.pop()
@@ -259,16 +280,24 @@ def send_message_to_queue(message):
 def book_room(room_name,user_email,user_name):
     sys.stderr.write("Beginning process to book a room and especially this room: "+room_name+"\n")
 
-    now = datetime.datetime.now().replace(microsecond=0)
-    starttime = now.isoformat()
-    endtime = (now + datetime.timedelta(hours=2)).isoformat()
+    start, end, results = get_available()
+    dispo_list=[r.split(' ')[0] for r in results]
+    if room_name in dispo_list:
+        print "Room booked is available"
 
-    data = {  
-        "cmd": "book",         
-        "data": {"starttime": starttime, "endtime": endtime, "user_name": user_name, "user_email": user_email, "room_name": room_name}
-    }    
-    message = json.dumps(data)  
-    return send_message_to_queue(message)
+        now = datetime.datetime.now().replace(microsecond=0)
+        starttime = now.isoformat()
+        endtime = (now + datetime.timedelta(hours=2)).isoformat()
+
+        data = {  
+            "cmd": "book",         
+            "data": {"starttime": starttime, "endtime": endtime, "user_name": user_name, "user_email": user_email, "room_name": room_name}
+        }    
+        message = json.dumps(data)  
+        return send_message_to_queue(message)
+    else:
+        print "Room booked is not available"
+        return "Room "+str(room_name)+", you are trying to book, is not available !"
 
 # Use Program-o API to reply in natural langage
 def natural_langage_bot(message):
@@ -301,6 +330,20 @@ def find_dir(cco):
     else:
         tab = reply.split(';')
         return tab[0],tab[1],tab[2],tab[3],tab[4] 
+
+
+def display_map(floor):
+    sys.stderr.write("Display map of floor: "+floor+"\n")
+
+    t=re.search(r'ILM-[1-7]',floor)
+    if t is not None:
+        return "http://www.guismo.fr.eu.org/plan/"+t+".jpg"
+    else:
+        t=re.search(r'[1-7]',floor)
+        if t is not None:
+            return "http://www.guismo.fr.eu.org/plan/ILM-"+t+".jpg"
+        else:
+            return "Floor "+ floor + " not known"
 
 def find_image(keyword):
     u = "http://api.flickr.com/services/feeds/photos_public.gne?tags="+keyword+"&lang=en-us&format=json"
