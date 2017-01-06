@@ -337,11 +337,11 @@ def display_map(floor):
 
     t=re.search(r'ILM-[1-7]',floor)
     if t is not None:
-        return "http://www.guismo.fr.eu.org/plan/"+t+".jpg"
+        return "http://www.guismo.fr.eu.org/plan/"+t.group(0)+".jpg"
     else:
         t=re.search(r'[1-7]',floor)
         if t is not None:
-            return "http://www.guismo.fr.eu.org/plan/ILM-"+t+".jpg"
+            return "http://www.guismo.fr.eu.org/plan/ILM-"+t.group(0)+".jpg"
         else:
             return "Floor "+ floor + " not known"
 
