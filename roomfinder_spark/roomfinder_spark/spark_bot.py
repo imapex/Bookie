@@ -204,7 +204,7 @@ def process_demoroom_message(post_data):
             keyword=keyword_list.pop()
         reply = find_image(keyword)
         print "find_image: "+reply
-        if reply != "Sorry no image found !":
+        if reply.startswith('http'):
             message_type="image"
     elif text.lower().find("plan") > -1 or text.lower().find("map") > -1 :
         # Find the floor
