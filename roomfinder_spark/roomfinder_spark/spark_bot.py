@@ -136,7 +136,7 @@ def process_demoroom_message(post_data):
             tally = page.json()
             sys.stderr.write("Tally: "+str(tally)+"\n")
             #tally = sorted(tally.items(), key = lambda (k,v): v, reverse=True)
-            results=(i[1].split()[0]+" "+i[1].split()[1] for i in tally[1] if i[0]=="Free")
+            results=(i[1] for i in tally[1] if i[0]=="Free")
             start = " in building "+str(building)+tally[0][2]
             end = tally[0][3]
 
