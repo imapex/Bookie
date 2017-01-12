@@ -130,7 +130,7 @@ def process_demoroom_message(post_data):
         for b in buildings:
             sys.stderr.write(' - '+str(b)+"\n")
         if len(buildings) > 0 :
-            building=buildings[1][1:]
+            building=buildings[0][1:]
             u = dispo_server + "/dispo?key="+str(building)
             page = requests.get(u, headers = app_headers)
             tally = page.json()
