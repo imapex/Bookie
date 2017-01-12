@@ -125,9 +125,24 @@ def process_demoroom_message(post_data):
 
     # Check if message contains word "dispo" and if so send results
     if text.lower().find("dispo") > -1 or text.lower().find("available") > -1:
-        number = re.findall(r'[0-9]+', text)
+        building = re.findall(r' [a-zA-Z\-]+ ', text)
+        sys.stderr.write('Building founds: '+len(building))
+        for b in building:
+            sys.stderr.write(' - '+str(b))
+        if len(building) > 0 :
+            u = dispo_server + "/dispo?key="+str(building)
+            page = requests.get(u, headers = app_headers)
+            tally = page.json()
+            #print "Tally: "+str(tally)
+            #tally = sorted(tally.items(), key = lambda (k,v): v, reverse=True)
+            results=(i[1].split()[0]+" "+i[1].split()[1] for i in tally[1] if i[0]=="Free")
+            start = " in building "+str(building)+tally[0][2]
+            end = tally[0][3]
+
+        else:
+            start, end, results = get_available()
+        number = re.findall(r' [0-9]+ ', text)
         print "number: "+str(number)
-        start, end, results = get_available()
         toto=list(results)
         sys.stderr.write("result: "+str(toto)+"\n")
 
@@ -221,7 +236,7 @@ def process_demoroom_message(post_data):
         sys.stderr.write("keyword_list= "+str(keyword_list)+"\n")
         keyword_list.reverse()
         keyword=keyword_list.pop()
-        while keyword.find("book") > -1 or keyword.find("reserve") > -1:
+        while keyword.lower().find("book") > -1 or keyword.lower().find("reserve") > -1:
             keyword=keyword_list.pop()
         reply = book_room(keyword.upper(),message["personEmail"].lower(),getDisplayName(message["personId"]))
         sys.stderr.write("book_room: "+reply+"\n")
@@ -289,6 +304,9 @@ def book_room(room_name,user_email,user_name):
         starttime = now.isoformat()
         endtime = (now + datetime.timedelta(hours=2)).isoformat()
 
+        # page = requests.get(book_server+'/book?starttime='+starttime+'&endtime='+endtime+'&user_name='+user_name+'&user_email'+user_email+'&room_name='+room_name) # find how to send the list of rooms read from previous file
+        # return page.text() # format result
+        # Previous 2 lines should replace next 6 lines
         data = {  
             "cmd": "book",         
             "data": {"starttime": starttime, "endtime": endtime, "user_name": user_name, "user_email": user_email, "room_name": room_name}
@@ -613,6 +631,9 @@ if __name__ == '__main__':
         "-b", "--botemail", help="Email address of the Bot", required=False
     )
     parser.add_argument(
+        "-f", "--dispo", help="Address of dispo server", required=False
+    )
+    parser.add_argument(
         "--demoemail", help="Email Address to Add to Demo Room", required=False
     )
     # parser.add_argument(
@@ -656,6 +677,16 @@ if __name__ == '__main__':
             app_server = get_app_server
     # print "App Server: " + app_server
     sys.stderr.write("Data Server: " + str(app_server) + "\n")
+
+    dispo_server = args.dispo
+    if (dispo_server == None):
+        dispo_server = os.getenv("roomfinder_dispo_server")
+        if (dispo_server == None):
+            get_dispo_server = raw_input("What is the dispo server address? ")
+            # print "Input App: " + str(get_app_server)
+            dispo_server = get_dispo_server
+    # print "App Server: " + app_server
+    sys.stderr.write("Dispo Server: " + str(dispo_server) + "\n")
 
     spark_token = args.token
     # print "Spark Token: " + str(spark_token)
