@@ -39,17 +39,84 @@ from requests_toolbelt.multipart.encoder import MultipartEncoder
 import pika  
 import uuid
 
+import urllib2
+import lnetatmo
+import time
+import unicodedata
+import feedparser
+from subprocess import check_output
+
 app = Flask(__name__)
 
 ROOM_TITLE="Roomfinder"
 spark_host = "https://api.ciscospark.com/"
 spark_headers = {}
-spark_headers["Content-type"] = "application/json"
+spark_headers["Content-type"] = "application/json; charset=utf-8"
 app_headers = {}
 app_headers["Content-type"] = "application/json"
 google_headers = {}
 google_headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_6_8) AppleWebKit/534.30 (KHTML, like Gecko) Chrome/12.0.742.112 Safari/534.30"
 
+def netatmoOutdoor(sonde):
+    authorization = lnetatmo.ClientAuth()
+    devList = lnetatmo.WeatherStationData(authorization)
+    msg= (sonde +" current temperature : %s C" % ( devList.lastData()[sonde]['Temperature']))
+    return msg
+    
+def netatmoIndoor(sonde):
+    authorization = lnetatmo.ClientAuth()
+    devList = lnetatmo.WeatherStationData(authorization)
+    msg= (sonde + " current temperature : %s C" % ( devList.lastData()[sonde]['Temperature']))
+    return msg
+   
+def stats(user,roomid):
+    logfile = open("/log/ILM-RoomFinder-Bot.log", 'r+')
+    line = logfile.readlines()
+    j = 1
+    logfile.seek(0)
+    for i in line:
+        if i != '' and i!= "\r\n" and i!= "\n" and i.split()[0].lower().startswith(user) :
+            j = int(i.split()[1])+1
+        else : 
+            logfile.write(i)
+    logfile.write(user +" "+ str(j) + " " + roomid + "\r\n")
+    logfile.truncate()
+    logfile.close()
+    return False
+
+def log(user, request, response):
+    f = open("/log/"+user +'.log', 'a+')
+    f.write("\r\n" + request + " - " + response + "\r\n")
+    f.close()
+    return True
+
+def readstats():
+    logs=""
+    nbUsers = 0
+    nbMsg = 0
+    logfile = open('/log/ILM-RoomFinder-Bot.log', 'r')
+    for line in logfile:
+        
+        if line != '' and line!= "\r\n" and line!= "\n" :
+            nbMsg = nbMsg + int(line.split()[1])
+            nbUsers = nbUsers + 1
+    logfile.close()
+    logs = "* nb Users : " + str(nbUsers) + "\r\n" + "* nb Requests : " + str(nbMsg)
+    return logs
+    
+def advertise(msg):
+    logfile = open('/log/ILM-RoomFinder-Bot.log', 'r')
+    for line in logfile:
+        
+        if line != '' and line!= "\r\n" and line!= "\n" :
+            roomid = line.split()[2]
+            send_message_to_room(roomid, "**"+msg+"**")
+    logfile.close()
+    return True
+
+
+
+    
 @app.route('/', methods=["POST"])
 def process_webhook():
     # Verify that the request is propery authorized
@@ -62,43 +129,43 @@ def process_webhook():
 
     # Check what room this came from
     # If Demo Room process for open room
-    if post_data["data"]["roomId"] == demo_room_id:
+    # if post_data["data"]["roomId"] == demo_room_id:
         # print("Incoming Demo Room Message.")
-        process_demoroom_message(post_data)
+    process_demoroom_message(post_data)
     # If not the demo room, assume its a user individual message
-    else:
-        # print("Incoming Individual Message.")
-        sys.stderr.write("Incoming Individual Message\n")
+    # else:
+    #     # print("Incoming Individual Message.")
+    #     sys.stderr.write("Incoming Individual Message\n")
 
     return ""
 
-@app.route("/demoroom/members", methods=["POST", "GET"])
-def process_demoroom_members():
-    # Verify that the request is propery authorized
-    #authz = valid_request_check(request)
-    #if not authz[0]:
-    #    return authz[1]
+# @app.route("/demoroom/members", methods=["POST", "GET"])
+# def process_demoroom_members():
+#     # Verify that the request is propery authorized
+#     #authz = valid_request_check(request)
+#     #if not authz[0]:
+#     #    return authz[1]
 
-    status = 200
-    if request.method == "POST":
-        data = request.form
-        try:
-            sys.stderr.write("Adding %s to demo room.\n" % (data["email"]))
-            add_email_demo_room(data["email"], demo_room_id)
-            status = 201
-        except KeyError:
-            error = {"Error":"API Expects dictionary object with single element and key of 'email'"}
-            status = 400
-            resp = Response(json.dumps(error), content_type='application/json', status=status)
-            return resp
+#     status = 200
+#     if request.method == "POST":
+#         data = request.form
+#         try:
+#             sys.stderr.write("Adding %s to demo room.\n" % (data["email"]))
+#             add_email_demo_room(data["email"], demo_room_id)
+#             status = 201
+#         except KeyError:
+#             error = {"Error":"API Expects dictionary object with single element and key of 'email'"}
+#             status = 400
+#             resp = Response(json.dumps(error), content_type='application/json', status=status)
+#             return resp
 
-    demo_room_members = get_membership_for_room(demo_room_id)
-    resp = Response(
-        json.dumps(demo_room_members, sort_keys=True, indent = 4, separators = (',', ': ')),
-        content_type='application/json',
-        status=status)
+#     demo_room_members = get_membership_for_room(demo_room_id)
+#     resp = Response(
+#         json.dumps(demo_room_members, sort_keys=True, indent = 4, separators = (',', ': ')),
+#         content_type='application/json',
+#         status=status)
 
-    return resp
+#     return resp
 
 
 # Bot functions to process the incoming messages posted by Cisco Spark
@@ -111,12 +178,15 @@ def process_demoroom_message(post_data):
     #print(message)
 
     # First make sure not processing a message from the bot
-    if message["personEmail"] == bot_email:
+    if post_data['data']["personEmail"] == bot_email:
         return ""
 
     # If someone is mentioned, do not answer
     if 'mentionedPeople' in message:
         return ""
+
+    if not post_data['data']['personEmail'].endswith('@cisco.com'):
+        return "** This bot is reserved for Cisco Employees **"
 
     sys.stderr.write("message="+str(message)+"\n")
 
@@ -175,7 +245,7 @@ def process_demoroom_message(post_data):
         else:
             reply = "Sorry, there is currently no available rooms"+reply+"\n"
     # Check if message contains word "options" and if so send options
-    elif text.lower().find("options") > -1 or text.lower().find("help") > -1 or text.lower().find("aide") > -1:
+    elif text.lower().find("options") > -1 or text.lower().find("help") > -1 or text.lower().find("aide") > -1 or text.lower() == "?":
         #options = get_options()
         reply = "The options are limited right now ! This is a beta release ! \n"
         reply += "  - any sentence with \"dispo\" or \"available\" keyword will display the current available rooms for the next 2 hours timeslot.\n"
@@ -183,20 +253,20 @@ def process_demoroom_message(post_data):
         reply += "  - any sentence with \"plan\" or \"map\" keyword will display the map of the floor mentionned after the keyword \"plan\" or \"map\".\n"
         reply += "  - any sentence with \"dir\" keyword will display the directory entry for the CCO id mentionned after the keyword \"dir\".\n"
         reply += "  - any sentence with \"options\" keyword will display this.\n"
-        reply += "  - any sentence with \"add email\" followed by an email will add this email to the Spark room.\n"
+        # reply += "  - any sentence with \"add email\" followed by an email will add this email to the Spark room.\n"
         reply += "  - any sentence with \"help\" or \"aide\" will display a helping message to the Spark room.\n"
         reply += "  - any other sentences will display some fun messages to the Spark room.\n"
         #for option in options:
             #reply += "  - %s \n" % (option)
     # Check if message contains phrase "add email" and if so add user to room
-    elif text.lower().find("add email") > -1:
-        # Get the email that comes
-        emails = re.findall(r'[\w\.-]+@[\w\.-]+', text)
-        # pprint(emails)
-        reply = "Adding users to demo room.\n"
-        for email in emails:
-            add_email_demo_room(email, demo_room_id)
-            reply += "  - %s \n" % (email)
+    # elif text.lower().find("add email") > -1:
+    #     # Get the email that comes
+    #     emails = re.findall(r'[\w\.-]+@[\w\.-]+', text)
+    #     # pprint(emails)
+    #     reply = "Adding users to demo room.\n"
+    #     for email in emails:
+    #         add_email_demo_room(email, demo_room_id)
+    #         reply += "  - %s \n" % (email)
     # Check if message contains phrase "help" and display generic help message
     elif text.lower().startswith("dir"):
         # Find the cco id
@@ -234,7 +304,7 @@ def process_demoroom_message(post_data):
         keyword=keyword_list.pop()
         while keyword.lower().find("book") > -1 or keyword.lower().find("reserve") > -1:
             keyword=keyword_list.pop()
-        reply = book_room(keyword.upper(),message["personEmail"].lower(),getDisplayName(message["personId"]))
+        reply = book_room(keyword.upper(),post_data['data']["personEmail"].lower(),getDisplayName(post_data['data']["personId"]))
         sys.stderr.write("book_room: "+reply+"\n")
     # If nothing matches, send instructions
     else:
@@ -242,7 +312,7 @@ def process_demoroom_message(post_data):
         if reply == "":
             return reply
     sys.stderr.write("reply: "+str(reply)+"\n")
-    send_message_to_room(demo_room_id, reply,message_type)
+    send_message_to_room(post_data["data"]["roomId"], reply,message_type)
 
 def getDisplayName(id):
     spark_u = spark_host + "v1/people/"+id
@@ -390,32 +460,32 @@ def get_options():
     return options
 
 # Roomfinder Demo Room Setup
-def setup_demo_room():
-    rooms = current_rooms()
-    # pprint(rooms)
+# def setup_demo_room():
+#     rooms = current_rooms()
+#     # pprint(rooms)
 
-    # Look for a room called "Roomfinder Demo"
-    demo_room_id = ""
-    for room in rooms:
-        if room["title"] == ROOM_TITLE:
-            # print("Found Room")
-            demo_room_id = room["id"]
-            break
+#     # Look for a room called "Roomfinder Demo"
+#     demo_room_id = ""
+#     for room in rooms:
+#         if room["title"] == ROOM_TITLE:
+#             # print("Found Room")
+#             demo_room_id = room["id"]
+#             break
 
-    # If demo room not found, create it
-    if demo_room_id == "":
-        demo_room = create_demo_room()
-        demo_room_id = demo_room["id"]
-        # pprint(demo_room)
+#     # If demo room not found, create it
+#     if demo_room_id == "":
+#         demo_room = create_demo_room()
+#         demo_room_id = demo_room["id"]
+#         # pprint(demo_room)
 
-    return demo_room_id
+#     return demo_room_id
 
-def create_demo_room():
-    spark_u = spark_host + "v1/rooms"
-    spark_body = {"title":ROOM_TITLE}
-    page = requests.post(spark_u, headers = spark_headers, json=spark_body)
-    room = page.json()
-    return room
+# def create_demo_room():
+#     spark_u = spark_host + "v1/rooms"
+#     spark_body = {"title":ROOM_TITLE}
+#     page = requests.post(spark_u, headers = spark_headers, json=spark_body)
+#     room = page.json()
+#     return room
 
 # Utility Add a user to the Roomfinder Demo Room
 def add_email_demo_room(email, room_id):
@@ -466,12 +536,12 @@ def post_localfile(roomId, encoded_photo, text='', html='', toPersonId='', toPer
     sys.stderr.write( "file_dict: "+str(file_dict)+"\n" )
     return message
 
-def send_message_to_room(room_id, message,message_type):
+def send_message_to_room(room_id, message,message_type="text"):
     spark_u = spark_host + "v1/messages"
     if message_type == "text":
         message_body = {
             "roomId" : room_id,
-            "text" : message
+            "markdown" : message
         }
     elif message_type == "image":
         message_body = {
@@ -510,14 +580,13 @@ def current_webhooks():
     webhooks = page.json()
     return webhooks["items"]
 
-def create_webhook(roomId, target, webhook_name = "New Webhook"):
+def create_webhook(target, webhook_name = "New Webhook"):
     spark_u = spark_host + "v1/webhooks"
     spark_body = {
         "name" : webhook_name,
         "targetUrl" : target,
         "resource" : "messages",
-        "event" : "created",
-        "filter" : "roomId=" + roomId
+        "event" : "created"
     }
     page = requests.post(spark_u, headers = spark_headers, json=spark_body)
     webhook = page.json()
@@ -537,21 +606,20 @@ def delete_webhook(webhook_id):
     spark_u = spark_host + "v1/webhooks/" + webhook_id
     page = requests.delete(spark_u, headers = spark_headers)
 
-def setup_webhook(room_id, target, name):
+def setup_webhook(target, name):
     webhooks = current_webhooks()
     pprint(webhooks)
 
     # Look for a Web Hook for the Room
     webhook_id = ""
     for webhook in webhooks:
-        if webhook["filter"] == "roomId=" + room_id:
-            print("Found Webhook")
-            webhook_id = webhook["id"]
-            break
+        print("Found Webhook")
+        webhook_id = webhook["id"]
+        break
 
     # If Web Hook not found, create it
     if webhook_id == "":
-        webhook = create_webhook(room_id, target, name)
+        webhook = create_webhook(target, name)
         webhook_id = webhook["id"]
     # If found, update url
     else:
@@ -636,10 +704,6 @@ if __name__ == '__main__':
     # parser.add_argument(
     #     "-s", "--secret", help="Key Expected in API Calls", required=False
     # )
-    parser.add_argument(
-        "-r", "--room", help="Spark Room Name", required=False
-    )
-
     args = parser.parse_args()
 
     # Set application run-time variables
@@ -706,33 +770,24 @@ if __name__ == '__main__':
     #         secret_key = get_secret_key
     # sys.stderr.write("Secret Key: " + secret_key + "\n")
 
-    ROOM_TITLE = args.room
-    if (ROOM_TITLE == None):
-        ROOM_TITLE = os.getenv("roomfinder_room_name")
-        if (ROOM_TITLE == None):
-            get_room_name = raw_input("What is the name of the Room?")
-            ROOM_TITLE = get_room_name
-    sys.stderr.write("Room Name: " + ROOM_TITLE + "\n" )
-
     # Set Authorization Details for external requests
     spark_headers["Authorization"] = "Bearer " + spark_token
     #app_headers["key"] = app_key
 
-
     # Setup The MyHereo Spark Demo Room
-    demo_room_id = setup_demo_room()
-    sys.stderr.write("Roomfinder Demo Room ID: " + demo_room_id + "\n")
+    # demo_room_id = setup_demo_room()
+    # sys.stderr.write("Roomfinder Demo Room ID: " + demo_room_id + "\n")
 
     # Setup Web Hook to process demo room messages
-    webhook_id = setup_webhook(demo_room_id, bot_url, "Roomfinder Demo Room Webhook")
+    webhook_id = setup_webhook(bot_url, "Roomfinder Bot Webhook")
     sys.stderr.write("Roomfinder Demo Web Hook ID: " + webhook_id + "\n")
 
 
     # If Demo Email was provided, add to room
-    demo_email = args.demoemail
-    if demo_email:
-        sys.stderr.write("Adding " + demo_email + " to the demo room.\n")
-        add_email_demo_room(demo_email, demo_room_id)
+    # demo_email = args.demoemail
+    # if demo_email:
+    #     sys.stderr.write("Adding " + demo_email + " to the demo room.\n")
+    #     add_email_demo_room(demo_email, demo_room_id)
 
     corr_id=None
     response=None
