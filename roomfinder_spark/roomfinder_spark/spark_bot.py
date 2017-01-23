@@ -66,8 +66,9 @@ def netatmoIndoor(sonde):
     return msg
    
 def stats(user,roomid):
-    logfile = open(log_dir+"ILM-RoomFinder-Bot.log", 'w+')
+    logfile = open(log_dir+"ILM-RoomFinder-Bot.log", 'r+')
     line = logfile.readlines()
+    sys.stderr.write('line='+str(line)+'\n')
     j = 1
     logfile.seek(0)
     for i in line:
@@ -129,7 +130,9 @@ def process_webhook():
         return ""
 
     if not post_data['data']['personEmail'].endswith('@cisco.com'):
-        return "** This bot is reserved for Cisco Employees **"
+        reply="** This bot is reserved for Cisco Employees **"
+        sys.stderr.write("reply: "+str(reply)+"\n")
+        return send_message_to_room(post_data["data"]["roomId"], reply,message_type)
 
     sys.stderr.write("message="+str(message)+"\n")
 
@@ -265,7 +268,7 @@ def process_webhook():
         if post_data['data']['personEmail'] in admin_list :
             end = len(text)
             start = len('/advertise/')
-            advertise(text[start:end].upper())
+            advertise(text[start:end].strip().upper())
             reply=""
         else :
             reply = "##You have no admin rights to advertise##"
