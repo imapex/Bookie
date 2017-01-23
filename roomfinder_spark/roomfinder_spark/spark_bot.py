@@ -83,7 +83,7 @@ def stats(user,roomid):
 
 def log(user, request, response):
     f = open(log_dir+user +'.log', 'a+')
-    f.write("\r\n" + request + " - " + response + "\r\n")
+    f.write("\r\n" + str(request) + " - " + str(response) + "\r\n")
     f.close()
     return True
 
@@ -281,10 +281,9 @@ def process_webhook():
     sys.stderr.write("reply: "+str(reply)+"\n")
     if reply != "":
         stats(post_data['data']['personEmail'],post_data['data']['roomId'])
-        log(post_data['data']['personEmail']+" - " +post_data['data']['roomId'],text,reply)
-        return send_message_to_room(post_data["data"]["roomId"], reply,message_type)
-    else:
-        return ""
+        log(post_data['data']['personEmail']+" - " +post_data['data']['roomId'],str(text),reply)
+        send_message_to_room(post_data["data"]["roomId"], reply,message_type)
+    return ""
 
 def getDisplayName(id):
     spark_u = spark_host + "v1/people/"+id
@@ -335,12 +334,12 @@ def book_room(room_name,user_email,user_name):
 
     start, end, results = get_available()
     dispo_list=[r.split(' ')[0] for r in results]
-    if room_name in dispo_list:
+    if room_name in dispo_list or not room_name.startswith('ILM-'):
         print "Room booked is available"
 
         now = datetime.datetime.now().replace(microsecond=0)
-        starttime = now.isoformat()
-        endtime = (now + datetime.timedelta(hours=2)).isoformat()
+        starttime = (now - datetime.timedelta(minutes=5)).isoformat()
+        endtime = (now - datetime.timedelta(minutes=5) + datetime.timedelta(hours=2)).isoformat()
 
         # page = requests.get(book_server+'/book?starttime='+starttime+'&endtime='+endtime+'&user_name='+user_name+'&user_email'+user_email+'&room_name='+room_name) # find how to send the list of rooms read from previous file
         # return page.text() # format result
