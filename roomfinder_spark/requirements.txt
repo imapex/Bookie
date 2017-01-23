@@ -5,5 +5,4 @@ BeautifulSoup
 requests-toolbelt
 pika
 uuid
-lnetatmo
 feedparser

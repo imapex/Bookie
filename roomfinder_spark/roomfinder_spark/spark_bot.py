@@ -1,13 +1,10 @@
 #! /usr/bin/python
 '''
-    Spark Bot for Room Finder Application
+    Cisco Spark Bot for Room Finder Application
 
-    This Bot will use a provided Spark Account (identified by the Developer Token)
-    and create a new room to use for interacting with the Roomfinder application.  Users can
-    check current available rooms. 
-
-    This is the an example Service for a basic microservice demo application.
-    The application was designed to provide a simple demo for Cisco Mantl
+    This Bot will use a provided bot Cisco Spark Account (identified by the Developer Token)
+    to interact with the Roomfinder application.  Users can
+    check current available rooms, book them and found them on a map. 
 
     There are several pieces of information needed to run this application.  It is
     suggested to set them as OS Environment Variables.  Here is an example on how to
@@ -27,9 +24,6 @@
 
 __author__ = 'gmorini'
 
-
-# ToDo - Method to monitor incoming 1 on 1 messages
-
 from flask import Flask, request, Response
 import requests, json, re, urllib, random
 import xml.etree.ElementTree as ET
@@ -46,9 +40,11 @@ import unicodedata
 import feedparser
 from subprocess import check_output
 
+admin_list=["rcronier@cisco.com","gmorini@cisco.com"]
+log_dir="/log/"
+
 app = Flask(__name__)
 
-ROOM_TITLE="Roomfinder"
 spark_host = "https://api.ciscospark.com/"
 spark_headers = {}
 spark_headers["Content-type"] = "application/json; charset=utf-8"
@@ -70,7 +66,7 @@ def netatmoIndoor(sonde):
     return msg
    
 def stats(user,roomid):
-    logfile = open("/log/ILM-RoomFinder-Bot.log", 'r+')
+    logfile = open(log_dir+"ILM-RoomFinder-Bot.log", 'w+')
     line = logfile.readlines()
     j = 1
     logfile.seek(0)
@@ -85,7 +81,7 @@ def stats(user,roomid):
     return False
 
 def log(user, request, response):
-    f = open("/log/"+user +'.log', 'a+')
+    f = open(log_dir+user +'.log', 'a+')
     f.write("\r\n" + request + " - " + response + "\r\n")
     f.close()
     return True
@@ -94,7 +90,7 @@ def readstats():
     logs=""
     nbUsers = 0
     nbMsg = 0
-    logfile = open('/log/ILM-RoomFinder-Bot.log', 'r')
+    logfile = open(log_dir+'ILM-RoomFinder-Bot.log', 'r+')
     for line in logfile:
         
         if line != '' and line!= "\r\n" and line!= "\n" :
@@ -105,72 +101,19 @@ def readstats():
     return logs
     
 def advertise(msg):
-    logfile = open('/log/ILM-RoomFinder-Bot.log', 'r')
+    logfile = open(log_dir+'ILM-RoomFinder-Bot.log', 'r+')
     for line in logfile:
         
         if line != '' and line!= "\r\n" and line!= "\n" :
             roomid = line.split()[2]
-            send_message_to_room(roomid, "**"+msg+"**")
+            send_message_to_room(roomid, "**"+msg+"**", "text")
     logfile.close()
     return True
 
-
-
-    
 @app.route('/', methods=["POST"])
-def process_webhook():
-    # Verify that the request is propery authorized
-    # authz = valid_request_check(request)
-    # if not authz[0]:
-    #     return authz[1]
-
-    post_data = request.get_json(force=True)
-    # pprint(post_data)
-
-    # Check what room this came from
-    # If Demo Room process for open room
-    # if post_data["data"]["roomId"] == demo_room_id:
-        # print("Incoming Demo Room Message.")
-    process_demoroom_message(post_data)
-    # If not the demo room, assume its a user individual message
-    # else:
-    #     # print("Incoming Individual Message.")
-    #     sys.stderr.write("Incoming Individual Message\n")
-
-    return ""
-
-# @app.route("/demoroom/members", methods=["POST", "GET"])
-# def process_demoroom_members():
-#     # Verify that the request is propery authorized
-#     #authz = valid_request_check(request)
-#     #if not authz[0]:
-#     #    return authz[1]
-
-#     status = 200
-#     if request.method == "POST":
-#         data = request.form
-#         try:
-#             sys.stderr.write("Adding %s to demo room.\n" % (data["email"]))
-#             add_email_demo_room(data["email"], demo_room_id)
-#             status = 201
-#         except KeyError:
-#             error = {"Error":"API Expects dictionary object with single element and key of 'email'"}
-#             status = 400
-#             resp = Response(json.dumps(error), content_type='application/json', status=status)
-#             return resp
-
-#     demo_room_members = get_membership_for_room(demo_room_id)
-#     resp = Response(
-#         json.dumps(demo_room_members, sort_keys=True, indent = 4, separators = (',', ': ')),
-#         content_type='application/json',
-#         status=status)
-
-#     return resp
-
-
 # Bot functions to process the incoming messages posted by Cisco Spark
-def process_demoroom_message(post_data):
-    sys.stderr.write("Beginning of process_demoroom_message\n")
+def process_webhook():
+    post_data = request.get_json(force=True)
     sys.stderr.write("post_data="+str(post_data)+"\n")
     message_type="text"
     message_id = post_data["data"]["id"]
@@ -194,7 +137,7 @@ def process_demoroom_message(post_data):
     sys.stderr.write("Incoming Room Message\tmessage: "+text+"\t")
 
     # Check if message contains word "dispo" and if so send results
-    if text.lower().find("dispo") > -1 or text.lower().find("available") > -1:
+    if text.lower().startswith("dispo") or text.lower().startswith("available"):
         buildings = re.findall(r' [a-zA-Z][a-zA-Z0-9\-]+', text)
         sys.stderr.write('Building founds: '+str(len(buildings))+"\n")
         for b in buildings:
@@ -209,7 +152,6 @@ def process_demoroom_message(post_data):
             results=(i[1] for i in tally[1] if i[0]=="Free")
             start = " in building "+str(building)+" "+tally[0][2]
             end = tally[0][3]
-
         else:
             start, end, results = get_available()
         number = re.findall(r' [0-9]+', text)
@@ -234,7 +176,6 @@ def process_demoroom_message(post_data):
             reply = " "+start+" "+end
             filtered_results=toto
 
-
         titi=list(filtered_results)
         # Test if filtered result list is empty or not
         if titi:
@@ -245,29 +186,20 @@ def process_demoroom_message(post_data):
         else:
             reply = "Sorry, there is currently no available rooms"+reply+"\n"
     # Check if message contains word "options" and if so send options
-    elif text.lower().find("options") > -1 or text.lower().find("help") > -1 or text.lower().find("aide") > -1 or text.lower() == "?":
+    elif text.lower() in ["options","help","aide","?"] :
         #options = get_options()
-        reply = "The options are limited right now ! This is a beta release ! \n"
-        reply += "  - any sentence with \"dispo\" or \"available\" keyword will display the current available rooms for the next 2 hours timeslot.\n"
-        reply += "  - any sentence with \"reserve\" or \"book\" keyword will try to book the room mentionned after the keyword \"book\" or \"reserve\".\n"
-        reply += "  - any sentence with \"plan\" or \"map\" keyword will display the map of the floor mentionned after the keyword \"plan\" or \"map\".\n"
-        reply += "  - any sentence with \"dir\" keyword will display the directory entry for the CCO id mentionned after the keyword \"dir\".\n"
-        reply += "  - any sentence with \"options\" keyword will display this.\n"
-        # reply += "  - any sentence with \"add email\" followed by an email will add this email to the Spark room.\n"
-        reply += "  - any sentence with \"help\" or \"aide\" will display a helping message to the Spark room.\n"
-        reply += "  - any other sentences will display some fun messages to the Spark room.\n"
-        #for option in options:
-            #reply += "  - %s \n" % (option)
-    # Check if message contains phrase "add email" and if so add user to room
-    # elif text.lower().find("add email") > -1:
-    #     # Get the email that comes
-    #     emails = re.findall(r'[\w\.-]+@[\w\.-]+', text)
-    #     # pprint(emails)
-    #     reply = "Adding users to demo room.\n"
-    #     for email in emails:
-    #         add_email_demo_room(email, demo_room_id)
-    #         reply += "  - %s \n" % (email)
-    # Check if message contains phrase "help" and display generic help message
+        reply = "Here are the keywords you can use: \n"
+        reply += "  - &quot;dispo&quot; or &quot;available&quot; keyword will display the current available rooms for the next 2 hours timeslot.\n"
+        reply += "  - &quot;reserve&quot; or &quot;book&quot; keyword will try to book the room mentionned after the keyword &quot;book&quot; or &quot;reserve&quot;.\n"
+        reply += "  - &quot;plan&quot; or &quot;map&quot; keyword will display the map of the floor mentionned after the keyword &quot;plan&quot; or &quot;map&quot;.\n"
+        reply += "  - &quot;in&quot; or &quot;inside&quot; keyword will display a picture inside the room mentionned after the keyword.\n"
+        reply += "  - &quot;dir&quot; keyword will display the directory entry for the CCO id mentionned after the keyword &quot;dir&quot;.\n"
+        # reply += "  - any sentence with &quot;add email&quot; followed by an email will add this email to the Spark room.\n"
+        reply += "  - &quot;help&quot; or &quot;aide&quot; will display a helping message to the Spark room.\n"
+        if post_data['data']['personEmail'] in admin_list :
+            reply += "  - &quot;/stats/&quot; keyword will display the statistics of Roomfinder Cisco Spark Bot.\n"
+            reply += "  - &quot;/advertise/&quot; keyword, followed by a message, will display this message for all users of Roomfinder Cisco Spark Bot.\n"
+        message_type="html"
     elif text.lower().startswith("dir"):
         # Find the cco id
         cco=text.lower().replace('dir ','')
@@ -275,7 +207,7 @@ def process_demoroom_message(post_data):
         print "find_dir: "+str(reply)
         if type(reply) != str and type(reply) != unicode:
             message_type="localfine"
-    elif text.lower().find("image") > -1:
+    elif text.lower().startswith("image"):
         # Find the cco id
         keyword_list = re.findall(r'[\w-]+', text)
         print "keyword_list= "+str(keyword_list)
@@ -287,16 +219,19 @@ def process_demoroom_message(post_data):
         print "find_image: "+reply
         if reply.startswith('http'):
             message_type="image"
-    elif text.lower().find("plan") > -1 or text.lower().find("map") > -1 :
+    elif text.lower().startswith("plan") or text.lower().startswith("map"):
         # Find the floor
-        keyword_list = re.findall(r'ILM-[1-7]', text) + re.findall(r'[1-7]', text)
+        keyword_list = re.findall(r'ILM-[1-7]', text.upper()) + re.findall(r'[1-7]', text)
         print "keyword_list= "+str(keyword_list)
-        keyword_list.reverse()
-        floor=keyword_list.pop()
-        reply = display_map(floor)
-        print "display_map: "+floor
-        message_type="image"
-    elif text.lower().find("book") > -1 or text.lower().find("reserve") > -1 :
+        if len(keyword_list) > 0:
+            keyword_list.reverse()
+            floor=keyword_list.pop()
+            reply = display_map(floor)
+            print "display_map: "+floor
+            message_type="image"
+        else:
+            reply = "No floor is corresponding. Try **map/plan ILM-X** or **map/plan X**"
+    elif text.lower().startswith("book") or text.lower().startswith("reserve"):
         # Find the room name
         keyword_list = re.findall(r'[\w-]+', text)
         sys.stderr.write("keyword_list= "+str(keyword_list)+"\n")
@@ -306,13 +241,47 @@ def process_demoroom_message(post_data):
             keyword=keyword_list.pop()
         reply = book_room(keyword.upper(),post_data['data']["personEmail"].lower(),getDisplayName(post_data['data']["personId"]))
         sys.stderr.write("book_room: "+reply+"\n")
+    elif text.lower().startswith('in') or text.lower().startswith('inside') or text.lower().startswith('interieur'):          
+        inside = text.split()[1].upper()
+        if inside.lower().startswith('ilm') :
+            reply=display_inside(inside)
+            message_type="image"
+        else :
+            reply = "No Inside View is corresponding. Try **in/inside/interieur ILM-X**"
+    elif text.upper().startswith('ILM-PARK'):
+        reply = "Parking 30 over 90"  
+    elif text.lower().startswith('temp'):
+        sonde = text.split()[1].upper()
+        if (sonde == "ILM-1-GAUGUIN") :
+            reply = netatmoOutdoor(sonde)
+        else :
+            reply = "No Temperature sensors available in this room"
+    elif text.lower() == "/stats/":
+        if post_data['data']['personEmail'] in admin_list :
+            reply=readstats()
+        else:
+            reply = "##You have no admin rights to view stats##"
+    elif text.lower().startswith("/advertise/"):
+        if post_data['data']['personEmail'] in admin_list :
+            end = len(text)
+            start = len('/advertise/')
+            advertise(text[start:end].upper())
+            reply=""
+        else :
+            reply = "##You have no admin rights to advertise##"
     # If nothing matches, send instructions
     else:
-        reply=natural_langage_bot(text.lower())
-        if reply == "":
-            return reply
+        # reply=natural_langage_bot(text.lower())
+        # if reply == "":
+        #     return reply
+        reply="Command not found !"
     sys.stderr.write("reply: "+str(reply)+"\n")
-    send_message_to_room(post_data["data"]["roomId"], reply,message_type)
+    if reply != "":
+        stats(post_data['data']['personEmail'],post_data['data']['roomId'])
+        log(post_data['data']['personEmail']+" - " +post_data['data']['roomId'],text,reply)
+        return send_message_to_room(post_data["data"]["roomId"], reply,message_type)
+    else:
+        return ""
 
 def getDisplayName(id):
     spark_u = spark_host + "v1/people/"+id
@@ -383,26 +352,8 @@ def book_room(room_name,user_email,user_name):
         print "Room booked is not available"
         return "Room "+str(room_name)+", you are trying to book, is not available !"
 
-# Use Program-o API to reply in natural langage
-def natural_langage_bot(message):
-    data={}
-    # 6 is Program O - The original chatbot
-    data['bot_id']=2
-    data['say']=message
-    #data['convo_id']="exampleusage_1231232"
-    data['format']="xml"
-    u = "http://www.guismo.fr.eu.org/Program-O/chatbot/conversation_start.php?"+urllib.urlencode(data)
-    try:
-        page = requests.get(u)
-        tree = ET.fromstring(page.content)
-        answer=tree.find('chat').find('line').find('response').text
-        return answer
-    except:
-        return ""
-
 def find_dir(cco):
     sys.stderr.write("Beginning process to find someone in the directory and especially this person: "+cco+"\n")
-
     data = {  
         "cmd": "dir",         
         "data": {"cco": cco}
@@ -415,10 +366,8 @@ def find_dir(cco):
         tab = reply.split(';')
         return tab[0],tab[1],tab[2],tab[3],tab[4],tab[5]
 
-
 def display_map(floor):
     sys.stderr.write("Display map of floor: "+floor+"\n")
-
     t=re.search(r'ILM-[1-7]',floor)
     if t is not None:
         return "http://www.guismo.fr.eu.org/plan/"+t.group(0)+".PNG"
@@ -428,6 +377,14 @@ def display_map(floor):
             return "http://www.guismo.fr.eu.org/plan/ILM-"+t.group(0)+".PNG"
         else:
             return "Floor "+ floor + " not known"
+
+def display_inside(room):
+    sys.stderr.write("Display inside of room: "+room+"\n")
+    t=re.search(r'ILM-[1-7]',room)
+    if t is not None:
+        return "http://5.51.31.146:8082/"+room+".jpg"
+    else:
+        return "Room "+ room + " not known"
 
 def find_image(keyword):
     u = "http://api.flickr.com/services/feeds/photos_public.gne?tags="+keyword+"&lang=en-us&format=json"
@@ -459,34 +416,6 @@ def get_options():
     options = page.json()["options"]
     return options
 
-# Roomfinder Demo Room Setup
-# def setup_demo_room():
-#     rooms = current_rooms()
-#     # pprint(rooms)
-
-#     # Look for a room called "Roomfinder Demo"
-#     demo_room_id = ""
-#     for room in rooms:
-#         if room["title"] == ROOM_TITLE:
-#             # print("Found Room")
-#             demo_room_id = room["id"]
-#             break
-
-#     # If demo room not found, create it
-#     if demo_room_id == "":
-#         demo_room = create_demo_room()
-#         demo_room_id = demo_room["id"]
-#         # pprint(demo_room)
-
-#     return demo_room_id
-
-# def create_demo_room():
-#     spark_u = spark_host + "v1/rooms"
-#     spark_body = {"title":ROOM_TITLE}
-#     page = requests.post(spark_u, headers = spark_headers, json=spark_body)
-#     room = page.json()
-#     return room
-
 # Utility Add a user to the Roomfinder Demo Room
 def add_email_demo_room(email, room_id):
     spark_u = spark_host + "v1/memberships"
@@ -495,7 +424,6 @@ def add_email_demo_room(email, room_id):
     membership = page.json()
     sys.stderr.write("reply: "+str(membership)+"\n")
     return membership
-
 
 # Spark Utility Functions
 #### Message Utilities
@@ -565,7 +493,8 @@ def send_message_to_room(room_id, message,message_type="text"):
     sys.stderr.write( "message_body: "+str(message_body)+"\n" )
     page = requests.post(spark_u, headers = spark_headers, json=message_body)
     message = page.json()
-    return message
+    #return message
+    return ""
 
 def get_message(message_id):
     spark_u = spark_host + "v1/messages/" + message_id
@@ -650,26 +579,6 @@ def get_membership_for_room(room_id):
 
     return memberships
 
-# Standard Utility
-# def valid_request_check(request):
-#     try:
-#         if request.headers["key"] == secret_key:
-#             return (True, "")
-#         else:
-#             error = {"Error": "Invalid Key Provided."}
-#             sys.stderr.write(str(error) + "\n")
-#             status = 401
-#             resp = Response(json.dumps(error), content_type='application/json', status=status)
-#             return (False, resp)
-#     except KeyError:
-#         error = {"Error": "Method requires authorization key."}
-#         sys.stderr.write(str(error) + "\n")
-#         status = 400
-#         resp = Response(json.dumps(error), content_type='application/json', status=status)
-#         return (False, resp)
-
-
-
 if __name__ == '__main__':
     from argparse import ArgumentParser
     import os, sys
@@ -707,10 +616,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Set application run-time variables
-    # Values can come from
-    #  1. Command Line
-    #  2. OS Environment Variables
-    #  3. Raw User Input
     bot_url = args.boturl
     if (bot_url == None):
         bot_url = os.getenv("roomfinder_spark_bot_url")
@@ -762,32 +667,13 @@ if __name__ == '__main__':
     # sys.stderr.write("Spark Token: " + spark_token + "\n")
     sys.stderr.write("Spark Token: REDACTED\n")
 
-    # secret_key = args.secret
-    # if (secret_key == None):
-    #     secret_key = os.getenv("roomfinder_spark_bot_secret")
-    #     if (secret_key == None):
-    #         get_secret_key = raw_input("What is the Authorization Key to Require? ")
-    #         secret_key = get_secret_key
-    # sys.stderr.write("Secret Key: " + secret_key + "\n")
-
     # Set Authorization Details for external requests
     spark_headers["Authorization"] = "Bearer " + spark_token
     #app_headers["key"] = app_key
 
-    # Setup The MyHereo Spark Demo Room
-    # demo_room_id = setup_demo_room()
-    # sys.stderr.write("Roomfinder Demo Room ID: " + demo_room_id + "\n")
-
     # Setup Web Hook to process demo room messages
     webhook_id = setup_webhook(bot_url, "Roomfinder Bot Webhook")
     sys.stderr.write("Roomfinder Demo Web Hook ID: " + webhook_id + "\n")
-
-
-    # If Demo Email was provided, add to room
-    # demo_email = args.demoemail
-    # if demo_email:
-    #     sys.stderr.write("Adding " + demo_email + " to the demo room.\n")
-    #     add_email_demo_room(demo_email, demo_room_id)
 
     corr_id=None
     response=None
