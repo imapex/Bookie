@@ -129,7 +129,7 @@ def process_webhook():
     if 'mentionedPeople' in message:
         return ""
 
-    if not post_data['data']['personEmail'].endswith('@cisco.com'):
+    if not (post_data['data']['personEmail'].endswith('@cisco.com') or post_data['data']['personEmail'].endswith('@ciscofrance.com') ):
         reply="** This bot is reserved for Cisco Employees **"
         sys.stderr.write("reply: "+str(reply)+"\n")
         return send_message_to_room(post_data["data"]["roomId"], reply,message_type)
@@ -184,7 +184,7 @@ def process_webhook():
         if titi:
             reply = "The current available rooms"+reply+" are:\n"
             for result in titi:
-                reply += "  - %s\n" % (result)
+                reply += "* %s\n" % (result)
                 #sys.stderr.write("Salle: "+result+"\n")
         else:
             reply = "Sorry, there is currently no available rooms"+reply+"\n"
@@ -192,17 +192,17 @@ def process_webhook():
     elif text.lower() in ["options","help","aide","?"] :
         #options = get_options()
         reply = "Here are the keywords you can use: \n"
-        reply += "  - &quot;dispo&quot; or &quot;available&quot; keyword will display the current available rooms for the next 2 hours timeslot.\n"
-        reply += "  - &quot;reserve&quot; or &quot;book&quot; keyword will try to book the room mentionned after the keyword &quot;book&quot; or &quot;reserve&quot;.\n"
-        reply += "  - &quot;plan&quot; or &quot;map&quot; keyword will display the map of the floor mentionned after the keyword &quot;plan&quot; or &quot;map&quot;.\n"
-        reply += "  - &quot;in&quot; or &quot;inside&quot; keyword will display a picture inside the room mentionned after the keyword.\n"
-        reply += "  - &quot;dir&quot; keyword will display the directory entry for the CCO id mentionned after the keyword &quot;dir&quot;.\n"
-        # reply += "  - any sentence with &quot;add email&quot; followed by an email will add this email to the Spark room.\n"
-        reply += "  - &quot;help&quot; or &quot;aide&quot; will display a helping message to the Spark room.\n"
+        reply += "* **dispo** or **available** keyword will display the current available rooms for the next 2 hours timeslot.\n"
+        reply += "* **reserve** or **book** keyword will try to book the room mentionned after the keyword **book** or **reserve**.\n"
+        reply += "* **plan** or **map** keyword will display the map of the floor mentionned after the keyword **plan** or **map**.\n"
+        reply += "* **in** or **inside** keyword will display a picture inside the room mentionned after the keyword.\n"
+        reply += "* **dir** keyword will display the directory entry for the CCO id mentionned after the keyword **dir**.\n"
+        # reply += "* any sentence with **add email** followed by an email will add this email to the Spark room.\n"
+        reply += "* **help** or **aide** will display a helping message to the Spark room.\n"
         if post_data['data']['personEmail'] in admin_list :
-            reply += "  - &quot;/stats/&quot; keyword will display the statistics of Roomfinder Cisco Spark Bot.\n"
-            reply += "  - &quot;/advertise/&quot; keyword, followed by a message, will display this message for all users of Roomfinder Cisco Spark Bot.\n"
-        message_type="html"
+            reply += "* **/stats/** keyword will display the statistics of Roomfinder Cisco Spark Bot.\n"
+            reply += "* **/advertise/** keyword, followed by a message, will display this message for all users of Roomfinder Cisco Spark Bot.\n"
+        message_type="text"
     elif text.lower().startswith("dir"):
         # Find the cco id
         cco=text.lower().replace('dir ','')
@@ -439,7 +439,7 @@ def send_message_to_email(email, message):
     message = page.json()
     return message
 
-def post_localfile(roomId, encoded_photo, text='', html='', toPersonId='', toPersonEmail=''):
+def post_localfile(roomId, encoded_photo, text='', html='', markdown='', toPersonId='', toPersonEmail=''):
     filename='/app/output.jpg'
     with open(filename, 'wb') as handle:
         handle.write(encoded_photo.decode('base64'))    
@@ -451,6 +451,8 @@ def post_localfile(roomId, encoded_photo, text='', html='', toPersonId='', toPer
         payload['text'] = text
     if html:
         payload['html'] = html
+    if markdown:
+        payload['markdown'] = markdown
     if toPersonId:
         payload['toPersonId'] = toPersonId
     if toPersonEmail:
@@ -491,7 +493,7 @@ def send_message_to_room(room_id, message,message_type="text"):
         phone=message[3]
         photo=message[4]
         dir_url=message[5]
-        return post_localfile(room_id,photo,html='Name: '+str(name)+' \nTitle: '+str(title)+' \nManager: '+str(manager)+'\n'+str(phone)+dir_url)
+        return post_localfile(room_id,photo,html='Name: '+str(name)+'\nTitle: '+str(title)+'\nManager: '+str(manager)+'\n'+str(phone)+dir_url)
     sys.stderr.write( "message_body: "+str(message_body)+"\n" )
     page = requests.post(spark_u, headers = spark_headers, json=message_body)
     message = page.json()
