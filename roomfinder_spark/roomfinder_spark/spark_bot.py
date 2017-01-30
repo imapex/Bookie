@@ -196,7 +196,9 @@ def process_webhook():
         reply += "* **reserve** or **book** keyword will try to book the room mentionned after the keyword **book** or **reserve**.\n"
         reply += "* **plan** or **map** keyword will display the map of the floor mentionned after the keyword **plan** or **map**.\n"
         reply += "* **in** or **inside** keyword will display a picture inside the room mentionned after the keyword.\n"
+        reply += "* **cherche** or **find** keyword will help you to find the floor of a room mentionned by its short name after the keyword.\n"
         reply += "* **dir** keyword will display the directory entry for the CCO id mentionned after the keyword **dir**.\n"
+        reply += "* **parking** keyword will display the available spots inside Cisco ILM parking.\n"
         # reply += "* any sentence with **add email** followed by an email will add this email to the Spark room.\n"
         reply += "* **help** or **aide** will display a helping message to the Spark room.\n"
         if post_data['data']['personEmail'] in admin_list :
@@ -210,6 +212,31 @@ def process_webhook():
         print "find_dir: "+str(reply)
         if type(reply) != str and type(reply) != unicode:
             message_type="localfine"
+    elif text.lower().startswith("find ") or text.lower().startswith("cherche "):
+        # Find the room
+        room=text.lower().replace('find ','')
+        room=room.lower().replace('cherche ','')
+        reply = where_room(room)
+        print "where_room: "+str(reply)
+        if not reply.startswith("Sorry"):
+            rooms=reply.split(';')
+            if len(rooms)==1:
+                reply="Here is the full name of the room: \n * "+rooms[0]
+                message_type="text"
+                if rooms[0].startswith("ILM-"):
+                    stats(post_data['data']['personEmail'],post_data['data']['roomId'])
+                    log(post_data['data']['personEmail']+" - " +post_data['data']['roomId'],str(text),reply)
+                    send_message_to_room(post_data["data"]["roomId"], reply,message_type)
+                    floor=rooms[0][0:5]
+                    message_type="image"
+                    reply = display_map(floor)
+            else:
+                reply="Do you mean:\n"
+                for r in rooms:
+                    reply+="* "+r+"\n"
+                message_type="text"
+        else:
+            message_type="text"
     elif text.lower().startswith("image"):
         # Find the cco id
         keyword_list = re.findall(r'[\w-]+', text)
@@ -251,8 +278,12 @@ def process_webhook():
             message_type="image"
         else :
             reply = "No Inside View is corresponding. Try **in/inside/interieur ILM-X**"
-    elif text.upper().startswith('ILM-PARK'):
-        reply = "Parking 30 over 90"  
+    elif text.lower().startswith('parking'):
+        page = requests.get("http://173.38.154.145/parking/getcounter.py")
+        result = page.json()
+        reply = "Free cars parking: "+str(result["car"]["count"])+" over "+str(result["car"]["total"])+"<br>"
+        reply += "Free motorbikes parking: "+str(result["motorbike"]["count"])+" over "+str(result["motorbike"]["total"])+"<br>"
+        reply += "Free bikecycles parking: "+str(result["bikecycle"]["count"])+" over "+str(result["bikecycle"]["total"])
     elif text.lower().startswith('temp'):
         sonde = text.split()[1].upper()
         if (sonde == "ILM-1-GAUGUIN") :
@@ -367,6 +398,16 @@ def find_dir(cco):
     else:
         tab = reply.split(';')
         return tab[0],tab[1],tab[2],tab[3],tab[4],tab[5]
+
+def where_room(room):
+    sys.stderr.write("Beginning process to find this room: "+room+"\n")
+    data = {  
+        "cmd": "where",         
+        "data": {"room": room}
+    }    
+    message = json.dumps(data)  
+    reply=send_message_to_queue(message)
+    return reply
 
 def display_map(floor):
     sys.stderr.write("Display map of floor: "+floor+"\n")
