@@ -22,7 +22,7 @@
     export roomfinder_spark_bot_url=http://public_ip_or_name:5000
 '''
 
-__author__ = 'gmorini'
+__author__ = 'gmorini@cisco.com'
 
 from flask import Flask, request, Response
 import requests, json, re, urllib, random
@@ -68,7 +68,7 @@ def netatmoIndoor(sonde):
 def stats(user,roomid):
     logfile = open(log_dir+"ILM-RoomFinder-Bot.log", 'r+')
     line = logfile.readlines()
-    sys.stderr.write('line='+str(line)+'\n')
+    #sys.stderr.write('line='+str(line)+'\n')
     j = 1
     logfile.seek(0)
     for i in line:
@@ -83,7 +83,7 @@ def stats(user,roomid):
 
 def log(user, request, response):
     f = open(log_dir+user +'.log', 'a+')
-    f.write("\r\n" + str(request) + " - " + str(response) + "\r\n")
+    f.write("\r\n" + datetime.datetime.now().replace(microsecond=0).isoformat() + " - " + str(request) + " - " + str(response) + "\r\n")
     f.close()
     return True
 
@@ -111,6 +111,32 @@ def advertise(msg):
     logfile.close()
     return True
 
+@app.route("/demoroom/members", methods=["POST", "GET"])
+def process_demoroom_members():
+    # Verify that the request is propery authorized
+    #authz = valid_request_check(request)
+    #if not authz[0]:
+    #    return authz[1]
+
+    status = 200
+    if request.method == "POST":
+        data = request.form
+        try:
+            sys.stderr.write("Adding %s to demo room.\n" % (data["email"]))
+            reply=send_welcome_message(data["email"])
+            status = 201
+            resp = Response(reply, content_type='application/json', status=status)
+        except KeyError:
+            error = {"Error":"API Expects dictionary object with single element and key of 'email'"}
+            status = 400
+            resp = Response(json.dumps(error), content_type='application/json', status=status)
+    # demo_room_members = get_membership()
+    # resp = Response(
+    #     json.dumps(demo_room_members, sort_keys=True, indent = 4, separators = (',', ': ')),
+    #     content_type='application/json',
+    #     status=status)
+    return resp
+
 @app.route('/', methods=["POST"])
 # Bot functions to process the incoming messages posted by Cisco Spark
 def process_webhook():
@@ -119,24 +145,29 @@ def process_webhook():
     message_type="text"
     message_id = post_data["data"]["id"]
     message = get_message(message_id)
-    #print(message)
+    print("message: "+str(message))
 
     # First make sure not processing a message from the bot
     if post_data['data']["personEmail"] == bot_email:
         return ""
 
+    text=message["text"].lstrip().encode("utf-8")
+
     # If someone is mentioned, do not answer
     if 'mentionedPeople' in message:
-        return ""
+        sys.stderr.write("mentionned: "+str(message["mentionedPeople"])+"\n")
+        sys.stderr.write("Bot id    : "+str(bot_id)+"\n")
+        if bot_id not in message["mentionedPeople"]:
+            sys.stderr.write("Not the bot mentionned, do not answer !\n")
+            return ""
+        else:
+            text=text.replace(bot_name,"").lstrip()
 
     if not (post_data['data']['personEmail'].endswith('@cisco.com') or post_data['data']['personEmail'].endswith('@ciscofrance.com') ):
         reply="** This bot is reserved for Cisco Employees **"
         sys.stderr.write("reply: "+str(reply)+"\n")
         return send_message_to_room(post_data["data"]["roomId"], reply,message_type)
 
-    sys.stderr.write("message="+str(message)+"\n")
-
-    text=message["text"].encode("utf-8")
     sys.stderr.write("Incoming Room Message\tmessage: "+text+"\t")
 
     # Check if message contains word "dispo" and if so send results
@@ -190,21 +221,29 @@ def process_webhook():
             reply = "Sorry, there is currently no available rooms"+reply+"\n"
     # Check if message contains word "options" and if so send options
     elif text.lower() in ["options","help","aide","?"] :
-        #options = get_options()
         reply = "Here are the keywords you can use: \n"
-        reply += "* **dispo** or **available** keyword will display the current available rooms for the next 2 hours timeslot.\n"
-        reply += "* **reserve** or **book** keyword will try to book the room mentionned after the keyword **book** or **reserve**.\n"
-        reply += "* **plan** or **map** keyword will display the map of the floor mentionned after the keyword **plan** or **map**.\n"
-        reply += "* **in** or **inside** keyword will display a picture inside the room mentionned after the keyword.\n"
+        reply += "* **dispo** or **available** keyword will display the available rooms for the next 2 hours timeslot. For other buildings than ILM, you will have to add the prefix of your building, like **available SJC14-**\n"
+        reply += "* **reserve** or **book** keyword will try to book, for the next 2 hours, the room mentionned after the keyword **book** or **reserve**.\n"
+        reply += "* **plan** or **map** keyword will display the map of the floor in **ILM building** mentionned after the keyword **plan** or **map**.\n"
+        reply += "* **in** or **inside** keyword will display a picture inside the room mentionned after the keyword in **ILM building**.\n"
         reply += "* **cherche** or **find** keyword will help you to find the floor of a room mentionned by its short name after the keyword.\n"
         reply += "* **dir** keyword will display the directory entry for the CCO id mentionned after the keyword **dir**.\n"
-        reply += "* **parking** keyword will display the available spots inside Cisco ILM parking.\n"
-        # reply += "* any sentence with **add email** followed by an email will add this email to the Spark room.\n"
+        reply += "* **parking** keyword will display the available spots inside Cisco **ILM parking**.\n"
+        reply += "* **add** keyword followed by an email will create a room between the bot and this email.\n"
         reply += "* **help** or **aide** will display a helping message to the Spark room.\n"
         if post_data['data']['personEmail'] in admin_list :
             reply += "* **/stats/** keyword will display the statistics of Roomfinder Cisco Spark Bot.\n"
             reply += "* **/advertise/** keyword, followed by a message, will display this message for all users of Roomfinder Cisco Spark Bot.\n"
         message_type="text"
+    # Check if message contains phrase "add email" and if so add user to room
+    elif text.lower().find("add ") > -1:
+        # Get the email that comes
+        emails = re.findall(r' [\w\.-]+@[\w\.-]+', text)
+        # pprint(emails)
+        reply = "Adding users to demo room.\n"
+        for email in emails:
+            send_welcome_message(email)
+            reply += "  - %s \n" % (email)
     elif text.lower().startswith("dir"):
         # Find the cco id
         cco=text.lower().replace('dir ','')
@@ -453,28 +492,13 @@ def get_available():
     end = tally[0][3]
     return start, end, room_list
 
-def get_options():
-    u = app_server + "/options"
-    page = requests.get(u, headers=app_headers)
-    options = page.json()["options"]
-    return options
-
-# Utility Add a user to the Roomfinder Demo Room
-def add_email_demo_room(email, room_id):
-    spark_u = spark_host + "v1/memberships"
-    spark_body = {"personEmail": email, "roomId" : room_id}
-    page = requests.post(spark_u, headers = spark_headers, json=spark_body)
-    membership = page.json()
-    sys.stderr.write("reply: "+str(membership)+"\n")
-    return membership
-
 # Spark Utility Functions
 #### Message Utilities
-def send_message_to_email(email, message):
+def send_welcome_message(email):
     spark_u = spark_host + "v1/messages"
     message_body = {
         "toPersonEmail" : email,
-        "text" : message
+        "markdown" : "Welcome in a chat room with **RoomFinder**, the 1:1 Bot to help you interact with Cisco Buildings\nType **help** to list the existing commands.\n"
     }
     page = requests.post(spark_u, headers = spark_headers, json=message_body)
     message = page.json()
@@ -576,10 +600,6 @@ def update_webhook(webhook_id, target, name):
     webhook = page.json()
     return webhook
 
-def delete_webhook(webhook_id):
-    spark_u = spark_host + "v1/webhooks/" + webhook_id
-    page = requests.delete(spark_u, headers = spark_headers)
-
 def setup_webhook(target, name):
     webhooks = current_webhooks()
     pprint(webhooks)
@@ -605,24 +625,24 @@ def setup_webhook(target, name):
     return webhook_id
 
 #### Room Utilities
-def current_rooms():
-    spark_u = spark_host + "v1/rooms"
-    page = requests.get(spark_u, headers = spark_headers)
-    rooms = page.json()
-    return rooms["items"]
-
-def leave_room(room_id):
-    # Get Membership ID for Room
-    membership_id = get_membership_for_room(room_id)
-    spark_u = spark_host + "v1/memberships/" + membership_id
-    page = requests.delete(spark_u, headers = spark_headers)
-
-def get_membership_for_room(room_id):
+def get_membership(room_id):
     spark_u = spark_host + "v1/memberships?roomId=%s" % (room_id)
     page = requests.get(spark_u, headers = spark_headers)
     memberships = page.json()["items"]
 
     return memberships
+
+def get_bot_id():
+    spark_u = spark_host + "v1/people/me"
+    page = requests.get(spark_u, headers = spark_headers)
+    reply = page.json()
+    return reply["id"]
+
+def get_bot_name():
+    spark_u = spark_host + "v1/people/me"
+    page = requests.get(spark_u, headers = spark_headers)
+    reply = page.json()
+    return reply["displayName"]
 
 if __name__ == '__main__':
     from argparse import ArgumentParser
@@ -719,6 +739,9 @@ if __name__ == '__main__':
     # Setup Web Hook to process demo room messages
     webhook_id = setup_webhook(bot_url, "Roomfinder Bot Webhook")
     sys.stderr.write("Roomfinder Demo Web Hook ID: " + webhook_id + "\n")
+
+    bot_id=get_bot_id()
+    bot_name=get_bot_name()
 
     corr_id=None
     response=None
