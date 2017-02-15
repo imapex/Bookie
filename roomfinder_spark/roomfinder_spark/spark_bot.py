@@ -464,7 +464,7 @@ def display_inside(room):
     sys.stderr.write("Display inside of room: "+room+"\n")
     t=re.search(r'ILM-[1-7]',room)
     if t is not None:
-        return "http://5.51.31.146:8082/"+room+".jpg"
+        return "http://www.guismo.fr.eu.org/in/"+room+".jpg"
     else:
         return "Room "+ room + " not known"
 
