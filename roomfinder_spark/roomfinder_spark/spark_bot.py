@@ -322,7 +322,7 @@ def process_webhook():
         result = page.json()
         reply = "Free cars parking: "+str(result["car"]["count"])+" over "+str(result["car"]["total"])+"<br>"
         reply += "Free motorbikes parking: "+str(result["motorbike"]["count"])+" over "+str(result["motorbike"]["total"])+"<br>"
-        reply += "Free bikecycles parking: "+str(result["bikecycle"]["count"])+" over "+str(result["bikecycle"]["total"])
+        reply += "Free bikecycles parking: "+str(result["bicycle"]["count"])+" over "+str(result["bicycle"]["total"])
     elif text.lower().startswith('temp'):
         sonde = text.split()[1].upper()
         if (sonde == "ILM-1-GAUGUIN") :
